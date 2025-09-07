@@ -1,149 +1,50 @@
-name: CI
+pipeline{
+ // need to add agents
+ agent any
 
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:
+ tools{
+ // here mymaven is tool configured under global tool configuration
+ // new tools added
+ maven 'mymaven'
+ }
 
-# Cancel older in-progress runs on the same branch
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+ stages{
 
-permissions:
-  contents: read
+ stage('Clone repo')
 
-jobs:
-  build-and-test:
-    name: Build & Test (JDK ${{ matrix.java }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        java: [ '17', '21' ]  # adjust as needed
+ {
+ steps{
+ git 'https://github.com/github-simplilearn-net/MavenBuild.git'
+ }
+}
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+ stage('Compile Code')
+ {
+ steps{
 
-      - name: Set up Temurin JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: ${{ matrix.java }}
-          cache: 'maven'     # built-in Maven cache
+ sh 'mvn compile'
+ }
+ }
 
-      # If you use a Maven wrapper, make sure mvnw is executable in repo.
-      - name: Make mvnw executable (if present)
-        run: |
-          if [ -f mvnw ]; then
-            chmod +x mvnw
-          fi
+ stage('Test Code')
+ {
 
-      - name: Validate & Build (skip tests)
-        run: |
-          if [ -f mvnw ]; then
-            ./mvnw -B -U -DskipTests clean validate
-          else
-            mvn -B -U -DskipTests clean validate
-          fi
+ steps{
 
-      - name: Run Unit Tests
-        run: |
-          if [ -f mvnw ]; then
-            ./mvnw -B test
-          else
-            mvn -B test
-          fi
+ sh 'mvn test'
+ }
+ post{
+ success{
+ junit 'target/surefire-reports/*.xml'
+ }
+ }
+ }
+ stage('Package Code')
+ {
+ steps{
 
-      # Optional: run integration tests if you use Maven Failsafe (ITs named *IT.java)
-      - name: Run Integration Tests (Failsafe)
-        if: ${{ hashFiles('**/pom.xml') != '' }}
-        run: |
-          if grep -q "<artifactId>maven-failsafe-plugin</artifactId>" -R .; then
-            if [ -f mvnw ]; then
-              ./mvnw -B -DskipITs=false verify
-            else
-              mvn -B -DskipITs=false verify
-            fi
-          else
-            echo "Failsafe plugin not found. Skipping ITs."
-          fi
-
-      # Useful for Selenium headless runs (Chrome)
-      - name: Install Chrome for headless UI tests (optional)
-        if: ${{ false }} # set to true if you need it
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable || sudo apt-get install -y chromium-browser
-          google-chrome --version || chromium-browser --version
-
-      - name: Package (creates jar/war)
-        run: |
-          if [ -f mvnw ]; then
-            ./mvnw -B -DskipTests package
-          else
-            mvn -B -DskipTests package
-          fi
-
-      # Upload Maven surefire & failsafe reports for PR review/debugging
-      - name: Upload Test Reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-reports-jdk-${{ matrix.java }}
-          path: |
-            **/target/surefire-reports/*
-            **/target/failsafe-reports/*
-          if-no-files-found: ignore
-          retention-days: 7
-
-      # Upload built artifacts (jars/wars) for quick download from the run
-      - name: Upload Build Artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-artifacts-jdk-${{ matrix.java }}
-          path: |
-            **/target/*.jar
-            **/target/*.war
-          if-no-files-found: ignore
-          retention-days: 7
-
-  # Optional: static analysis (SpotBugs/Checkstyle) if configured in your pom.xml
-  static-analysis:
-    name: Static Analysis
-    runs-on: ubuntu-latest
-    needs: build-and-test
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-          cache: 'maven'
-      - name: Run Checkstyle (optional)
-        run: |
-          if [ -f mvnw ]; then
-            ./mvnw -B checkstyle:checkstyle || true
-          else
-            mvn -B checkstyle:checkstyle || true
-          fi
-      - name: Run SpotBugs (optional)
-        run: |
-          if [ -f mvnw ]; then
-            ./mvnw -B com.github.spotbugs:spotbugs-maven-plugin:spotbugs || true
-          else
-            mvn -B com.github.spotbugs:spotbugs-maven-plugin:spotbugs || true
-          fi
-      - name: Upload Analysis Reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: static-analysis-reports
-          path: |
-            **/target/checkstyle-result.xml
-            **/target/spotbugsXml.xml
-          if-no-files-found: ignore
-          retention-days: 7
+ sh 'mvn package'
+ }
+ }
+ }
+}
